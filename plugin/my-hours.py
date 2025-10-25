@@ -28,13 +28,17 @@ class MyHoursPlugin(PlanSource, Audience):
 
         data = requests.post(LOGIN_API, json=body)
         if data.status_code == 200:
+            expires_at_dt = datetime.datetime.now(ZoneInfo("UTC")) + datetime.timedelta(seconds=data.json().get('expiresIn'))
             auth = {
                 "access_token": data.json().get('accessToken'),
                 "refresh_token": data.json().get('refreshToken'),
                 "expires_in": data.json().get('expiresIn'),
-                "expires_at": (datetime.datetime.now(ZoneInfo("UTC")) + datetime.timedelta(seconds=data.json().get('expiresIn'))).isoformat()
+                "expires_at": expires_at_dt
             }
-            (self.state_path / 'token.toml').write_text(toml.dumps(auth))
+            # Write to file with isoformat string
+            auth_to_save = auth.copy()
+            auth_to_save["expires_at"] = expires_at_dt.isoformat()
+            (self.state_path / 'token.toml').write_text(toml.dumps(auth_to_save))
             return auth
         elif data.status_code == 401:
             raise ValueError("Invalid credentials. Please check your email and password.")
@@ -54,13 +58,17 @@ class MyHoursPlugin(PlanSource, Audience):
 
             refresh = requests.post(REFRESH_API, json=body, headers=headers)
             if refresh.status_code == 200:
+                expires_at_dt = datetime.datetime.now(ZoneInfo("UTC")) + datetime.timedelta(seconds=refresh.json().get('expiresIn'))
                 new_auth = {
                     "access_token": refresh.json().get('accessToken'),
                     "refresh_token": refresh.json().get('refreshToken'),
                     "expires_in": refresh.json().get('expiresIn'),
-                    "expires_at": (datetime.datetime.now(ZoneInfo("UTC")) + datetime.timedelta(seconds=refresh.json().get('expiresIn'))).isoformat()
+                    "expires_at": expires_at_dt
                 }
-                (self.state_path / 'token.toml').write_text(toml.dumps(new_auth))
+                # Write to file with isoformat string
+                new_auth_to_save = new_auth.copy()
+                new_auth_to_save["expires_at"] = expires_at_dt.isoformat()
+                (self.state_path / 'token.toml').write_text(toml.dumps(new_auth_to_save))
                 return new_auth
             elif refresh.status_code == 401:
                 (self.state_path / 'token.toml').unlink(missing_ok=True)
