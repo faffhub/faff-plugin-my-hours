@@ -142,18 +142,28 @@ class MyHoursPlugin(PlanSource, Audience):
             trackers=trackers
         )
 
-    def compile_time_sheet(self, log: Log) -> Timesheet:
+    def compile_time_sheet(self, log: Log) -> Timesheet | None:
+        # Only include sessions that have trackers from this plugin's source
+        # e.g., if self.id is "element", only include sessions with trackers starting with "element:"
+        def has_tracker_for_this_source(session):
+            if not session.intent.trackers:
+                return False
+            return any(t.startswith(f'{self.id}:') for t in session.intent.trackers)
+
+        timeline = [x for x in log.timeline if has_tracker_for_this_source(x)]
+
+        # Always create a timesheet, even if empty
+        # This allows the system to track that this date has been compiled
         return Timesheet(
             actor=self.config.get('actor', ''),
             signatures={},
             date=log.date,
             compiled=datetime.datetime.now(ZoneInfo("UTC")),
             timezone=log.timezone,
-            timeline=[x for x in log.timeline if x.intent.trackers and len(x.intent.trackers) > 0],
+            timeline=timeline,
             meta=TimesheetMeta(
                 audience_id=self.id,
-                submitted_at=None,
-                submitted_by=None
+                submitted_at=None
             )
         )
 
@@ -178,9 +188,19 @@ class MyHoursPlugin(PlanSource, Audience):
     
     def vape_myhours_day(self, date: datetime.date) -> None:
         day = self.get_myhours_day(date)
+        if not day:
+            print(f"No existing MyHours entries for {date}")
+            return
+
+        print(f"Found {len(day)} existing MyHours entry/entries for {date}:")
         for mh_log in day:
-            print(mh_log.get('id'))
-            self.delete_myhours_log(mh_log.get('id'))
+            log_id = mh_log.get('id')
+            project = mh_log.get('projectName', 'Unknown project')
+            note = mh_log.get('note', 'No note')
+            duration = mh_log.get('duration', 0)
+            hours = duration / 3600 if duration else 0
+            print(f"  Deleting: [{project}] {note} ({hours:.2f}h) [ID: {log_id}]")
+            self.delete_myhours_log(log_id)
 
     def insert_myhours_log(self, thing) -> None:
         """
@@ -197,6 +217,33 @@ class MyHoursPlugin(PlanSource, Audience):
             json=thing,
             headers=headers
         )
+
+        if response.status_code >= 400:
+            print(f"Error inserting log entry. Status: {response.status_code}")
+            print(f"Request data: {thing}")
+            print(f"Response: {response.text}")
+
+            # Check for specific error cases
+            if response.status_code == 400:
+                try:
+                    error_data = response.json()
+                    # Check both message and validationErrors array for archived project error
+                    validation_errors = error_data.get("validationErrors", [])
+                    error_text = error_data.get("message", "").lower()
+                    for err in validation_errors:
+                        error_text += " " + str(err).lower()
+
+                    if "archived project" in error_text:
+                        print(f"Skipping entry for archived project {thing.get('projectId')}")
+                        # FIXME: We should mark the timesheet as partially submitted or track
+                        # that this entry couldn't be pushed. Currently the timesheet will be
+                        # marked as fully submitted even though this entry was skipped.
+                        # Options: add metadata to timesheet about failed entries, or don't
+                        # mark as submitted if any entries fail.
+                        return  # Skip this entry instead of crashing
+                except:
+                    pass
+
         response.raise_for_status()
 
     def delete_myhours_log(self, myhours_log_id: int) -> None:
@@ -223,26 +270,40 @@ class MyHoursPlugin(PlanSource, Audience):
             config (Dict[str, Any]): Configuration specific to the destination.
             timesheet (Dict[str, Any]): The compiled timesheet to push.
         """
+        # Skip submitting empty timesheets
+        if not timesheet.timeline:
+            print(f"Skipping submission for {timesheet.date} - no sessions to submit")
+            return
+
+        print(f"\nSubmitting timesheet for {timesheet.date}...")
         self.vape_myhours_day(timesheet.date)
+
+        print(f"\nInserting {len(timesheet.timeline)} entry/entries:")
         for item in timesheet.timeline:
             # Validate trackers exist and are not empty
-            if not item.trackers or len(item.trackers) == 0:
-                print(f"Warning: Skipping timeline item '{item.alias}' - no trackers found")
+            if not item.intent.trackers or len(item.intent.trackers) == 0:
+                print(f"Warning: Skipping timeline item '{item.intent.alias}' - no trackers found")
                 continue
 
             # Extract tracker ID, handling the 'element:' prefix if present
-            tracker_raw = item.trackers[0]
+            tracker_raw = item.intent.trackers[0]
             if tracker_raw.startswith('element:'):
                 tracker = tracker_raw[len('element:'):]
             else:
                 # If no prefix, use as-is (for backwards compatibility or other tracker formats)
                 tracker = tracker_raw
 
+            # Calculate duration for display
+            duration_seconds = (item.end - item.start).total_seconds()
+            hours = duration_seconds / 3600
+
             myhours_log = {
                 "projectId": tracker,
-                "note": f"{item.alias}",
-                "date": item.start.format("YYYY-MM-DD"),
-                "start": str(item.start.in_timezone("UTC")),
-                "end": str(item.end.in_timezone("UTC")),
+                "note": f"{item.intent.alias}",
+                "date": item.start.strftime("%Y-%m-%d"),
+                "start": item.start.astimezone(ZoneInfo("UTC")).isoformat(),
+                "end": item.end.astimezone(ZoneInfo("UTC")).isoformat(),
             }
+
+            print(f"  Inserting: [Project {tracker}] {item.intent.alias} ({hours:.2f}h)")
             self.insert_myhours_log(myhours_log)
