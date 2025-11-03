@@ -142,7 +142,7 @@ class MyHoursPlugin(PlanSource, Audience):
             trackers=trackers
         )
 
-    def compile_time_sheet(self, log: Log) -> Timesheet | None:
+    def compile_time_sheet(self, log: Log) -> Timesheet:
         # Only include sessions that have trackers from this plugin's source
         # e.g., if self.id is "element", only include sessions with trackers starting with "element:"
         def has_tracker_for_this_source(session):
