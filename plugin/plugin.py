@@ -4,8 +4,6 @@ import datetime
 import requests
 from zoneinfo import ZoneInfo
 
-from slugify import slugify
-
 from faff_core.models import Plan, Log, Timesheet, TimesheetMeta
 from faff_core.plugins import PlanSource, Audience
 
@@ -118,7 +116,6 @@ class MyHoursPlugin(PlanSource, Audience):
 
         # Pagination setup
         trackers = {}
-        subjects = []
         resp = requests.get(
             "https://api2.myhours.com/api/projects",
             headers=headers
@@ -128,9 +125,6 @@ class MyHoursPlugin(PlanSource, Audience):
         for project in page_data:
             trackers[str(project.get('id'))] = project.get('name')
 
-            if project.get('name').lower().startswith('support - '):
-                subjects.append(f"customer/{slugify(project.get('name')[len('Support - '):])}")
-    
         return Plan(
             source=self.id,
             valid_from=date,
@@ -138,7 +132,7 @@ class MyHoursPlugin(PlanSource, Audience):
             roles=self.defaults.get("roles", []),
             objectives=self.defaults.get("objectives", []),
             actions=self.defaults.get("actions", []),
-            subjects=self.defaults.get("subjects", []) + subjects,
+            subjects=self.defaults.get("subjects", []),
             trackers=trackers
         )
 
