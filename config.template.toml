@@ -3,27 +3,4 @@ plugin = "faff-plugin-my-hours"
 
 [connection]
 email = "your.email@example.com"
-target = 8
-signing_ids = ["your.email@example.com"]
-
-[connection.actor]
-email = "your.email@example.com"
-name = "Your Name"
-company = "Your Company"
-employee_id = "000"
-
-[vocabulary]
-roles = [
-  "role1",
-  "role2"
-]
-
-objectives = [
-  "objective1",
-  "objective2"
-]
-
-actions = [
-  "action1",
-  "action2"
-]
+# signing_ids = ["your.email@example.com"]
