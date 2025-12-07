@@ -120,6 +120,18 @@ class MyHoursPlugin(PlanSource, Audience):
             "https://api2.myhours.com/api/projects",
             headers=headers
         )
+
+        # Handle 401 by re-authenticating
+        if resp.status_code == 401:
+            print("Session expired. Re-authenticating...")
+            (self.state_path / 'token.toml').unlink(missing_ok=True)
+            myhours_bearer_token = self.authenticate()
+            headers = {"Authorization": f"Bearer {myhours_bearer_token}"}
+            resp = requests.get(
+                "https://api2.myhours.com/api/projects",
+                headers=headers
+            )
+
         resp.raise_for_status()
         page_data = resp.json()
         for project in page_data:
